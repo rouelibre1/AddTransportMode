@@ -80,6 +80,20 @@
             <option value="asc">Croissant</option>
           </select>
         </div>
+        <div class="field inline">
+          <label for="instance-filter">Instance</label>
+          <select id="instance-filter">
+            <option value="" selected>Toutes</option>
+          </select>
+        </div>
+        <div class="field inline">
+          <label for="instance-sort">Tri par instance</label>
+          <select id="instance-sort">
+            <option value="" selected>Non</option>
+            <option value="asc">A → Z</option>
+            <option value="desc">Z → A</option>
+          </select>
+        </div>
       </div>
       <p id="summary"></p>
       <div class="table-wrapper">
@@ -91,7 +105,7 @@
               <th>Prise de vue</th>
               <th>Contributeur</th>
               <th>Tags existants</th>
-              <th>Instance</th>
+              <th><button type="button" id="instance-sort-header" class="sort-header">Instance <span id="instance-sort-indicator"></span></button></th>
               <th></th>
             </tr>
           </thead>

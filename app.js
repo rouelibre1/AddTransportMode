@@ -43,6 +43,10 @@ const els = {
   maxImages: $('max-images'),
   sortOrder: $('sort-order'),
   sortHeader: $('sort-header'),
+  instanceFilter: $('instance-filter'),
+  instanceSort: $('instance-sort'),
+  instanceSortHeader: $('instance-sort-header'),
+  instanceSortIndicator: $('instance-sort-indicator'),
   sortIndicator: $('sort-indicator'),
   summary: $('summary'),
   tbody: document.querySelector('#results-table tbody'),
@@ -647,6 +651,7 @@ async function runSearch() {
     }
     setStatus(messages.join(' '), kind);
     els.resultsPanel.hidden = false;
+    fillInstanceFilter();
     render();
   } catch (err) {
     if (err.name === 'AbortError') setStatus('Recherche annulée.', 'warning');
@@ -669,12 +674,35 @@ function readIntInput(input) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Remplit la liste des instances présentes dans les résultats (en gardant le choix courant si possible). */
+function fillInstanceFilter() {
+  const previous = els.instanceFilter.value;
+  const counts = new Map();
+  for (const r of state.rows) counts.set(r.instanceName, (counts.get(r.instanceName) || 0) + 1);
+  const names = [...counts.keys()].sort((a, b) => a.localeCompare(b, 'fr'));
+  els.instanceFilter.innerHTML = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = `Toutes (${nf.format(names.length)})`;
+  els.instanceFilter.append(all);
+  for (const name of names) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = `${name} (${nf.format(counts.get(name))})`;
+    els.instanceFilter.append(opt);
+  }
+  els.instanceFilter.value = counts.has(previous) ? previous : '';
+}
+
 function filteredSortedRows() {
   const min = readIntInput(els.minImages);
   const max = readIntInput(els.maxImages);
   const dir = els.sortOrder.value === 'asc' ? 1 : -1;
+  const instance = els.instanceFilter.value;
+  const instanceDir = els.instanceSort.value === 'asc' ? 1 : els.instanceSort.value === 'desc' ? -1 : 0;
   return state.rows
     .filter((r) => {
+      if (instance && r.instanceName !== instance) return false;
       if (min === null && max === null) return true;
       if (r.count === null) return false;
       if (min !== null && r.count < min) return false;
@@ -682,6 +710,10 @@ function filteredSortedRows() {
       return true;
     })
     .sort((a, b) => {
+      if (instanceDir) {
+        const byInstance = a.instanceName.localeCompare(b.instanceName, 'fr') * instanceDir;
+        if (byInstance) return byInstance;
+      }
       if (a.count === null && b.count === null) return 0;
       if (a.count === null) return 1; // inconnus toujours à la fin
       if (b.count === null) return -1;
@@ -706,6 +738,7 @@ function zoomTo(row) {
 function render() {
   const rows = filteredSortedRows();
   els.sortIndicator.textContent = els.sortOrder.value === 'asc' ? '▲' : '▼';
+  els.instanceSortIndicator.textContent = { asc: '▲', desc: '▼' }[els.instanceSort.value] || '';
 
   const s = state.stats;
   const totalImages = rows.reduce((sum, r) => sum + (r.count || 0), 0);
@@ -839,6 +872,13 @@ els.cancelBtn.addEventListener('click', () => {
 els.minImages.addEventListener('input', render);
 els.maxImages.addEventListener('input', render);
 els.sortOrder.addEventListener('change', render);
+els.instanceFilter.addEventListener('change', render);
+els.instanceSort.addEventListener('change', render);
+els.instanceSortHeader.addEventListener('click', () => {
+  // Non -> A→Z -> Z→A -> Non
+  els.instanceSort.value = { '': 'asc', asc: 'desc', desc: '' }[els.instanceSort.value];
+  render();
+});
 els.sortHeader.addEventListener('click', () => {
   els.sortOrder.value = els.sortOrder.value === 'asc' ? 'desc' : 'asc';
   render();
