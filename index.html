@@ -81,18 +81,25 @@
           </select>
         </div>
         <div class="field inline">
-          <label for="instance-filter">Instance</label>
-          <select id="instance-filter">
-            <option value="" selected>Toutes</option>
-          </select>
+          <label for="date-from">Prise de vue du</label>
+          <input type="date" id="date-from">
         </div>
         <div class="field inline">
-          <label for="instance-sort">Tri par instance</label>
-          <select id="instance-sort">
-            <option value="" selected>Non</option>
-            <option value="asc">A → Z</option>
-            <option value="desc">Z → A</option>
-          </select>
+          <label for="date-to">au</label>
+          <input type="date" id="date-to">
+        </div>
+        <div class="field inline">
+          <span class="field-label">Instances</span>
+          <details id="instance-filter" class="multi-select">
+            <summary id="instance-filter-summary">Toutes</summary>
+            <div class="multi-select-menu">
+              <div class="multi-select-actions">
+                <button type="button" id="instance-all">Tout cocher</button>
+                <button type="button" id="instance-none">Tout décocher</button>
+              </div>
+              <div id="instance-options"></div>
+            </div>
+          </details>
         </div>
       </div>
       <p id="summary"></p>
@@ -105,7 +112,7 @@
               <th>Prise de vue</th>
               <th>Contributeur</th>
               <th>Tags existants</th>
-              <th><button type="button" id="instance-sort-header" class="sort-header">Instance <span id="instance-sort-indicator"></span></button></th>
+              <th><button type="button" id="instance-sort-header" class="sort-header" title="Trier par instance (A → Z, Z → A, sans tri)">Instance <span id="instance-sort-indicator" class="inactive">▲</span></button></th>
               <th></th>
             </tr>
           </thead>

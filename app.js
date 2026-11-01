@@ -43,8 +43,13 @@ const els = {
   maxImages: $('max-images'),
   sortOrder: $('sort-order'),
   sortHeader: $('sort-header'),
+  dateFrom: $('date-from'),
+  dateTo: $('date-to'),
   instanceFilter: $('instance-filter'),
-  instanceSort: $('instance-sort'),
+  instanceFilterSummary: $('instance-filter-summary'),
+  instanceOptions: $('instance-options'),
+  instanceAll: $('instance-all'),
+  instanceNone: $('instance-none'),
   instanceSortHeader: $('instance-sort-header'),
   instanceSortIndicator: $('instance-sort-indicator'),
   sortIndicator: $('sort-indicator'),
@@ -57,6 +62,8 @@ const state = {
   rows: [],             // séquences sans transport retenues
   stats: null,
   abort: null,
+  instanceSort: '',     // '' (pas de tri), 'asc' ou 'desc'
+  excludedInstances: new Set(), // instances décochées dans le filtre
 };
 
 /* ------------------------------------------------------------------ */
@@ -674,35 +681,72 @@ function readIntInput(input) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Remplit la liste des instances présentes dans les résultats (en gardant le choix courant si possible). */
+/** Remplit les cases à cocher des instances présentes dans les résultats (en gardant les choix courants). */
 function fillInstanceFilter() {
-  const previous = els.instanceFilter.value;
   const counts = new Map();
   for (const r of state.rows) counts.set(r.instanceName, (counts.get(r.instanceName) || 0) + 1);
   const names = [...counts.keys()].sort((a, b) => a.localeCompare(b, 'fr'));
-  els.instanceFilter.innerHTML = '';
-  const all = document.createElement('option');
-  all.value = '';
-  all.textContent = `Toutes (${nf.format(names.length)})`;
-  els.instanceFilter.append(all);
-  for (const name of names) {
-    const opt = document.createElement('option');
-    opt.value = name;
-    opt.textContent = `${name} (${nf.format(counts.get(name))})`;
-    els.instanceFilter.append(opt);
+  for (const name of [...state.excludedInstances]) {
+    if (!counts.has(name)) state.excludedInstances.delete(name);
   }
-  els.instanceFilter.value = counts.has(previous) ? previous : '';
+  els.instanceOptions.innerHTML = '';
+  for (const name of names) {
+    const label = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = name;
+    box.checked = !state.excludedInstances.has(name);
+    box.addEventListener('change', () => {
+      if (box.checked) state.excludedInstances.delete(name);
+      else state.excludedInstances.add(name);
+      render();
+    });
+    label.append(box, `${name} (${nf.format(counts.get(name))})`);
+    els.instanceOptions.append(label);
+  }
+}
+
+function setAllInstances(checked) {
+  for (const box of els.instanceOptions.querySelectorAll('input[type="checkbox"]')) {
+    box.checked = checked;
+    if (checked) state.excludedInstances.delete(box.value);
+    else state.excludedInstances.add(box.value);
+  }
+  render();
+}
+
+function updateInstanceFilterSummary() {
+  const total = els.instanceOptions.querySelectorAll('input').length;
+  const selected = total - state.excludedInstances.size;
+  els.instanceFilterSummary.textContent = selected === total ? `Toutes (${nf.format(total)})`
+    : selected === 0 ? 'Aucune' : `${nf.format(selected)} sur ${nf.format(total)}`;
+}
+
+/** Date locale AAAA-MM-JJ (même jour que celui affiché dans le tableau). */
+function localIsoDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function filteredSortedRows() {
   const min = readIntInput(els.minImages);
   const max = readIntInput(els.maxImages);
   const dir = els.sortOrder.value === 'asc' ? 1 : -1;
-  const instance = els.instanceFilter.value;
-  const instanceDir = els.instanceSort.value === 'asc' ? 1 : els.instanceSort.value === 'desc' ? -1 : 0;
+  const dateFrom = els.dateFrom.value || null;
+  const dateTo = els.dateTo.value || null;
+  const instanceDir = state.instanceSort === 'asc' ? 1 : state.instanceSort === 'desc' ? -1 : 0;
   return state.rows
     .filter((r) => {
-      if (instance && r.instanceName !== instance) return false;
+      if (state.excludedInstances.has(r.instanceName)) return false;
+      if (dateFrom || dateTo) {
+        const day = localIsoDate(r.date);
+        if (!day) return false;
+        if (dateFrom && day < dateFrom) return false;
+        if (dateTo && day > dateTo) return false;
+      }
       if (min === null && max === null) return true;
       if (r.count === null) return false;
       if (min !== null && r.count < min) return false;
@@ -738,7 +782,9 @@ function zoomTo(row) {
 function render() {
   const rows = filteredSortedRows();
   els.sortIndicator.textContent = els.sortOrder.value === 'asc' ? '▲' : '▼';
-  els.instanceSortIndicator.textContent = { asc: '▲', desc: '▼' }[els.instanceSort.value] || '';
+  els.instanceSortIndicator.textContent = state.instanceSort === 'desc' ? '▼' : '▲';
+  els.instanceSortIndicator.classList.toggle('inactive', !state.instanceSort);
+  updateInstanceFilterSummary();
 
   const s = state.stats;
   const totalImages = rows.reduce((sum, r) => sum + (r.count || 0), 0);
@@ -872,11 +918,16 @@ els.cancelBtn.addEventListener('click', () => {
 els.minImages.addEventListener('input', render);
 els.maxImages.addEventListener('input', render);
 els.sortOrder.addEventListener('change', render);
-els.instanceFilter.addEventListener('change', render);
-els.instanceSort.addEventListener('change', render);
+els.dateFrom.addEventListener('input', render);
+els.dateTo.addEventListener('input', render);
+els.instanceAll.addEventListener('click', () => setAllInstances(true));
+els.instanceNone.addEventListener('click', () => setAllInstances(false));
+document.addEventListener('click', (e) => {
+  if (els.instanceFilter.open && !els.instanceFilter.contains(e.target)) els.instanceFilter.open = false;
+});
 els.instanceSortHeader.addEventListener('click', () => {
-  // Non -> A→Z -> Z→A -> Non
-  els.instanceSort.value = { '': 'asc', asc: 'desc', desc: '' }[els.instanceSort.value];
+  // sans tri -> A→Z -> Z→A -> sans tri
+  state.instanceSort = { '': 'asc', asc: 'desc', desc: '' }[state.instanceSort];
   render();
 });
 els.sortHeader.addEventListener('click', () => {

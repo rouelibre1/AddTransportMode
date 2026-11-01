@@ -147,3 +147,60 @@ tr.highlight td { background: #fff6d6; }
   cursor: pointer;
   padding: .1rem .4rem;
 }
+
+.field-label { display: block; font-weight: 600; margin-bottom: .3rem; font-size: .9rem; }
+.field.inline input[type="date"] {
+  width: auto;
+  padding: .45rem .55rem;
+  border: 1px solid #b8c2cc;
+  border-radius: 5px;
+  font: inherit;
+}
+
+.multi-select { position: relative; }
+.multi-select summary {
+  list-style: none;
+  cursor: pointer;
+  min-width: 12rem;
+  padding: .45rem 1.8rem .45rem .55rem;
+  border: 1px solid #b8c2cc;
+  border-radius: 5px;
+  background: #fff;
+  position: relative;
+}
+.multi-select summary::-webkit-details-marker { display: none; }
+.multi-select summary::after { content: "▾"; position: absolute; right: .6rem; }
+.multi-select-menu {
+  position: absolute;
+  z-index: 1000;
+  margin-top: 2px;
+  min-width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #b8c2cc;
+  border-radius: 5px;
+  box-shadow: 0 4px 10px rgba(0,0,0,.12);
+  padding: .4rem .6rem;
+}
+.multi-select-actions { display: flex; gap: .4rem; margin-bottom: .4rem; }
+.multi-select-actions button {
+  white-space: nowrap;
+  font: inherit;
+  font-size: .8em;
+  border: 1px solid #b8c2cc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: .1rem .4rem;
+}
+#instance-options label {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  font-weight: normal;
+  white-space: nowrap;
+  padding: .15rem 0;
+}
+#instance-options input { width: auto; margin: 0; }
+.sort-header .inactive { opacity: .3; }
