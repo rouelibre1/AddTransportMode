@@ -43,6 +43,10 @@ const els = {
   maxImages: $('max-images'),
   sortOrder: $('sort-order'),
   sortHeader: $('sort-header'),
+  createdSortHeader: $('created-sort-header'),
+  createdSortIndicator: $('created-sort-indicator'),
+  uploadDateRanges: $('upload-date-ranges'),
+  addUploadDateRange: $('add-upload-date-range'),
   yearFilter: $('year-filter'),
   yearFilterSummary: $('year-filter-summary'),
   yearOptions: $('year-options'),
@@ -91,6 +95,8 @@ const state = {
   excludedYears: new Set(),     // années décochées dans le filtre
   openedIds: loadOpenedIds(),   // séquences dont le lien a été ouvert
   recheckingOpened: false,
+  primarySort: 'count',         // 'count' (nombre d'images) ou 'created' (date de mise en ligne)
+  createdSort: 'desc',          // sens du tri par date de mise en ligne
   showTransport: false,         // afficher les séquences qui ont déjà transport=
   transportToCheck: [],         // séquences avec transport= pas encore vérifiées précisément
   preciseContext: null,         // { geometry, geometryString } pour la vérification précise
@@ -549,6 +555,7 @@ function toRow(collection, apiBase) {
     title: collection.title || collection.id,
     count: Number.isFinite(Number(count)) && count !== null ? Number(count) : null,
     date: start,
+    created: collection.created || null, // date de mise en ligne
     provider,
     tags: semantics.map((t) => `${t.key}=${t.value}`),
     bbox: collectionBbox(collection),
@@ -846,7 +853,7 @@ function fillResultFilters() {
 
 /* Plages de dates multiples */
 
-function addDateRangeRow(from = '', to = '') {
+function addDateRangeRow(container, from = '', to = '') {
   const wrapper = document.createElement('div');
   wrapper.className = 'date-range';
   const fromLabel = document.createElement('label');
@@ -868,18 +875,18 @@ function addDateRangeRow(from = '', to = '') {
   remove.title = 'Supprimer cette plage';
   remove.addEventListener('click', () => {
     wrapper.remove();
-    if (!els.dateRanges.children.length) addDateRangeRow();
+    if (!container.children.length) addDateRangeRow(container);
     render();
   });
   fromInput.addEventListener('input', render);
   toInput.addEventListener('input', render);
   wrapper.append(fromLabel, toLabel, remove);
-  els.dateRanges.append(wrapper);
+  container.append(wrapper);
 }
 
 /** Plages renseignées (au moins une borne). */
-function activeDateRanges() {
-  return [...els.dateRanges.querySelectorAll('.date-range')]
+function activeDateRanges(container) {
+  return [...container.querySelectorAll('.date-range')]
     .map((w) => ({ from: w.querySelector('.range-from').value || null, to: w.querySelector('.range-to').value || null }))
     .filter((r) => r.from || r.to);
 }
@@ -893,11 +900,27 @@ function localIsoDate(value) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function timeOf(value) {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+/** Compare deux nombres ; les valeurs inconnues (null) sont toujours à la fin. */
+function compareNullable(a, b, dir) {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return (a - b) * dir;
+}
+
 function filteredSortedRows() {
   const min = readIntInput(els.minImages);
   const max = readIntInput(els.maxImages);
   const dir = els.sortOrder.value === 'asc' ? 1 : -1;
-  const ranges = activeDateRanges();
+  const ranges = activeDateRanges(els.dateRanges);
+  const uploadRanges = activeDateRanges(els.uploadDateRanges);
+  const createdDir = state.createdSort === 'asc' ? 1 : -1;
   const instanceDir = state.instanceSort === 'asc' ? 1 : state.instanceSort === 'desc' ? -1 : 0;
   return state.rows
     .filter((r) => {
@@ -908,6 +931,11 @@ function filteredSortedRows() {
         const day = localIsoDate(r.date);
         if (!day) return false;
         if (!ranges.some((rg) => (!rg.from || day >= rg.from) && (!rg.to || day <= rg.to))) return false;
+      }
+      if (uploadRanges.length) {
+        const day = localIsoDate(r.created);
+        if (!day) return false;
+        if (!uploadRanges.some((rg) => (!rg.from || day >= rg.from) && (!rg.to || day <= rg.to))) return false;
       }
       if (min === null && max === null) return true;
       if (r.count === null) return false;
@@ -920,10 +948,12 @@ function filteredSortedRows() {
         const byInstance = a.instanceName.localeCompare(b.instanceName, 'fr') * instanceDir;
         if (byInstance) return byInstance;
       }
-      if (a.count === null && b.count === null) return 0;
-      if (a.count === null) return 1; // inconnus toujours à la fin
-      if (b.count === null) return -1;
-      return (a.count - b.count) * dir || String(a.date || '').localeCompare(String(b.date || ''));
+      if (state.primarySort === 'created') {
+        return compareNullable(timeOf(a.created), timeOf(b.created), createdDir)
+          || compareNullable(a.count, b.count, dir);
+      }
+      return compareNullable(a.count, b.count, dir)
+        || String(a.date || '').localeCompare(String(b.date || ''));
     });
 }
 
@@ -1024,6 +1054,9 @@ function render() {
   updateToggleTransportButton();
   const rows = filteredSortedRows();
   els.sortIndicator.textContent = els.sortOrder.value === 'asc' ? '▲' : '▼';
+  els.sortIndicator.classList.toggle('inactive', state.primarySort !== 'count');
+  els.createdSortIndicator.textContent = state.createdSort === 'asc' ? '▲' : '▼';
+  els.createdSortIndicator.classList.toggle('inactive', state.primarySort !== 'created');
   els.instanceSortIndicator.textContent = state.instanceSort === 'desc' ? '▼' : '▲';
   els.instanceSortIndicator.classList.toggle('inactive', !state.instanceSort);
   els.instanceFilterSummary.textContent = multiSelectSummary(els.instanceOptions, state.excludedInstances);
@@ -1078,6 +1111,9 @@ function render() {
     const tdDate = document.createElement('td');
     tdDate.textContent = formatDate(row.date);
 
+    const tdCreated = document.createElement('td');
+    tdCreated.textContent = formatDate(row.created);
+
     const tdProvider = document.createElement('td');
     tdProvider.textContent = row.provider;
 
@@ -1120,7 +1156,7 @@ function render() {
       tdActions.append(result);
     }
 
-    tr.append(tdCount, tdTitle, tdDate, tdProvider, tdTags, tdInstance, tdActions);
+    tr.append(tdCount, tdTitle, tdDate, tdCreated, tdProvider, tdTags, tdInstance, tdActions);
     for (const link of [titleLink, edit]) {
       // clic gauche, clic molette ou menu contextuel « ouvrir dans un nouvel onglet »
       link.addEventListener('click', () => markOpened(row));
@@ -1188,11 +1224,16 @@ els.cancelBtn.addEventListener('click', () => {
 
 els.minImages.addEventListener('input', render);
 els.maxImages.addEventListener('input', render);
-els.sortOrder.addEventListener('change', render);
+els.sortOrder.addEventListener('change', () => {
+  state.primarySort = 'count';
+  render();
+});
 els.yearAll.addEventListener('click', () => setAllOptions(els.yearOptions, state.excludedYears, true));
 els.yearNone.addEventListener('click', () => setAllOptions(els.yearOptions, state.excludedYears, false));
-els.addDateRange.addEventListener('click', () => addDateRangeRow());
-addDateRangeRow();
+els.addDateRange.addEventListener('click', () => addDateRangeRow(els.dateRanges));
+addDateRangeRow(els.dateRanges);
+els.addUploadDateRange.addEventListener('click', () => addDateRangeRow(els.uploadDateRanges));
+addDateRangeRow(els.uploadDateRanges);
 els.recheckOpened.addEventListener('click', recheckOpenedRows);
 els.toggleTransport.addEventListener('click', toggleTransport);
 els.instanceAll.addEventListener('click', () => setAllOptions(els.instanceOptions, state.excludedInstances, true));
@@ -1207,7 +1248,14 @@ els.instanceSortHeader.addEventListener('click', () => {
   state.instanceSort = { '': 'asc', asc: 'desc', desc: '' }[state.instanceSort];
   render();
 });
+// Un clic sur un en-tête inactif le rend tri principal ; sur l'en-tête actif, inverse le sens.
 els.sortHeader.addEventListener('click', () => {
-  els.sortOrder.value = els.sortOrder.value === 'asc' ? 'desc' : 'asc';
+  if (state.primarySort === 'count') els.sortOrder.value = els.sortOrder.value === 'asc' ? 'desc' : 'asc';
+  state.primarySort = 'count';
+  render();
+});
+els.createdSortHeader.addEventListener('click', () => {
+  if (state.primarySort === 'created') state.createdSort = state.createdSort === 'asc' ? 'desc' : 'asc';
+  state.primarySort = 'created';
   render();
 });

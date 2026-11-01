@@ -112,6 +112,11 @@
         <div id="date-ranges"></div>
         <button type="button" id="add-date-range" class="small-btn">+ Ajouter une plage</button>
       </div>
+      <div class="date-ranges-block">
+        <span class="field-label">Plages de dates de mise en ligne <span class="hint">(une séquence est gardée si elle est dans l’une des plages)</span></span>
+        <div id="upload-date-ranges"></div>
+        <button type="button" id="add-upload-date-range" class="small-btn">+ Ajouter une plage</button>
+      </div>
       <div class="results-actions">
         <button type="button" id="recheck-opened" class="small-btn" disabled>Revérifier les séquences ouvertes (0)</button>
         <button type="button" id="toggle-transport" class="small-btn">Afficher les séquences avec transport= (0)</button>
@@ -124,6 +129,7 @@
               <th><button type="button" id="sort-header" class="sort-header">Images <span id="sort-indicator">▼</span></button></th>
               <th>Séquence</th>
               <th>Prise de vue</th>
+              <th><button type="button" id="created-sort-header" class="sort-header" title="Trier par date de mise en ligne">Mise en ligne <span id="created-sort-indicator" class="inactive">▼</span></button></th>
               <th>Contributeur</th>
               <th>Tags existants</th>
               <th><button type="button" id="instance-sort-header" class="sort-header" title="Trier par instance (A → Z, Z → A, sans tri)">Instance <span id="instance-sort-indicator" class="inactive">▲</span></button></th>
