@@ -230,4 +230,3 @@ tr.rechecked-ok td, tr.has-transport td { background: #e6f4ea; }
 }
 .small-btn:disabled { opacity: .5; cursor: default; }
 .results-actions { margin-top: .9rem; display: flex; flex-wrap: wrap; gap: .5rem; }
-.opened-mark { display: block; font-size: .8em; color: #66737f; margin-top: .25rem; }

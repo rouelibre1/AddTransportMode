@@ -938,22 +938,12 @@ function updateRecheckOpenedButton() {
   els.recheckOpened.disabled = n === 0;
 }
 
-function markOpened(row, tr) {
+function markOpened(row) {
   if (state.openedIds.has(row.id)) return;
   state.openedIds.add(row.id);
   saveOpenedIds();
   // pas de render() ici : on ne reconstruit pas le lien pendant son clic
-  addOpenedMark(tr);
   updateRecheckOpenedButton();
-}
-
-function addOpenedMark(tr) {
-  const cell = tr.querySelector('.row-actions');
-  if (!cell || cell.querySelector('.opened-mark')) return;
-  const mark = document.createElement('span');
-  mark.className = 'opened-mark';
-  mark.textContent = 'Lien ouvert';
-  cell.prepend(mark);
 }
 
 /** Revérifie toutes les séquences des résultats dont le lien a été ouvert. */
@@ -1133,11 +1123,10 @@ function render() {
     tr.append(tdCount, tdTitle, tdDate, tdProvider, tdTags, tdInstance, tdActions);
     for (const link of [titleLink, edit]) {
       // clic gauche, clic molette ou menu contextuel « ouvrir dans un nouvel onglet »
-      link.addEventListener('click', () => markOpened(row, tr));
-      link.addEventListener('auxclick', () => markOpened(row, tr));
-      link.addEventListener('contextmenu', () => markOpened(row, tr));
+      link.addEventListener('click', () => markOpened(row));
+      link.addEventListener('auxclick', () => markOpened(row));
+      link.addEventListener('contextmenu', () => markOpened(row));
     }
-    if (state.openedIds.has(row.id)) addOpenedMark(tr);
     tr.addEventListener('mouseenter', () => highlightRow(row.id, true));
     tr.addEventListener('mouseleave', () => highlightRow(row.id, false));
     fragment.append(tr);
