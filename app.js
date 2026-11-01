@@ -16,6 +16,8 @@
 
 const GEO_API = 'https://geo.api.gouv.fr';
 const PAGE_LIMIT = 1000;          // maximum accepté par /api/collections
+const PAGE_LIMIT_FALLBACKS = [200, 50]; // tailles de page de repli si le serveur ne répond pas
+const RETRY_DELAY_MS = 1000;
 const MAX_PAGES = 500;            // garde-fou
 const CHECK_CONCURRENCY = 6;      // requêtes simultanées pour la vérification précise
 const SIMPLIFY_TOLERANCE = 0.00005; // ~5 m, pour alléger le contour envoyé à l'API
@@ -72,9 +74,17 @@ const rectangles = new Map(); // id -> L.Rectangle
 /* Utilitaires                                                         */
 /* ------------------------------------------------------------------ */
 
-function setStatus(message, kind = '') {
+function setStatus(message, kind = '', url = null) {
   els.status.textContent = message;
   els.status.className = kind;
+  if (url) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Ouvrir la requête en échec dans un nouvel onglet';
+    els.status.append(document.createElement('br'), link);
+  }
 }
 
 const nf = new Intl.NumberFormat('fr-FR');
@@ -87,15 +97,28 @@ function formatDate(value) {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+    // Erreur réseau ou réponse sans en-têtes CORS (souvent un délai dépassé côté serveur)
+    let host = url;
+    try { host = new URL(url).host; } catch (_) { /* ignore */ }
+    const netErr = new Error(`impossible d’obtenir une réponse de ${host} (erreur réseau, délai dépassé ou CORS)`);
+    netErr.network = true;
+    netErr.url = url;
+    throw netErr;
+  }
   if (!response.ok) {
     let detail = '';
     try {
       const body = await response.json();
       detail = body.message || body.detail || '';
     } catch (_) { /* ignore */ }
-    const err = new Error(`HTTP ${response.status}${detail ? ` : ${detail}` : ''} (${url})`);
+    const err = new Error(`HTTP ${response.status}${detail ? ` : ${detail}` : ''}`);
     err.status = response.status;
+    err.url = url;
     throw err;
   }
   return response.json();
@@ -382,17 +405,48 @@ const onTerritoryInput = debounce(async () => {
  * Les liens "next" de l'API ne conservent pas le paramètre bbox : on reprend
  * uniquement leurs paramètres de pagination (page, sortby) et on rajoute bbox/limit.
  */
-async function fetchAllCollections(apiBase, bbox, signal, onProgress) {
+function isRetryable(err) {
+  return err.network || err.status === 429 || (err.status >= 500 && err.status < 600);
+}
+
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new DOMException('Aborted', 'AbortError'));
+      }, { once: true });
+    }
+  });
+}
+
+async function fetchAllCollections(apiBase, bbox, signal, onProgress, onRetry) {
   const all = new Map();
   let pagination = null;
+  // Tailles de page essayées successivement si le serveur ne répond pas
+  // (requête trop lourde -> délai dépassé côté serveur).
+  const limits = [PAGE_LIMIT, ...PAGE_LIMIT_FALLBACKS];
+  let limitIndex = 0;
   for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
+    const limit = limits[limitIndex];
     const url = new URL(`${apiBase}/collections`);
     url.searchParams.set('bbox', bbox.map((v) => v.toFixed(6)).join(','));
-    url.searchParams.set('limit', String(PAGE_LIMIT));
+    url.searchParams.set('limit', String(limit));
     if (pagination) {
       for (const [key, value] of Object.entries(pagination)) url.searchParams.set(key, value);
     }
-    const data = await fetchJson(url.toString(), { signal });
+    let data;
+    try {
+      data = await fetchJson(url.toString(), { signal });
+    } catch (err) {
+      if (err.name === 'AbortError' || !isRetryable(err) || limitIndex >= limits.length - 1) throw err;
+      limitIndex++;
+      onRetry(limits[limitIndex], err);
+      await wait(RETRY_DELAY_MS, signal);
+      pageNumber--; // on retente la même page
+      continue;
+    }
     const collections = Array.isArray(data.collections) ? data.collections : [];
     for (const c of collections) {
       if (c && c.id && c['geovisio:status'] !== 'deleted') all.set(c.id, c);
@@ -400,7 +454,7 @@ async function fetchAllCollections(apiBase, bbox, signal, onProgress) {
     onProgress(pageNumber, all.size);
 
     const next = (data.links || []).find((l) => l.rel === 'next');
-    if (collections.length < PAGE_LIMIT || !next || !next.href) break;
+    if (collections.length < limit || !next || !next.href) break;
     const nextParams = new URL(next.href, url).searchParams;
     const newPagination = {};
     for (const key of ['page', 'sortby']) {
@@ -534,6 +588,8 @@ async function runSearch() {
     setStatus('Récupération des séquences…');
     const collections = await fetchAllCollections(apiBase, territory.bbox, controller.signal, (page, total) => {
       setStatus(`Récupération des séquences… page ${page}, ${nf.format(total)} séquence(s) dans l’emprise.`);
+    }, (newLimit) => {
+      setStatus(`Le serveur n’a pas répondu, nouvel essai avec des pages de ${newLimit} séquences…`, 'warning');
     });
 
     const withoutSemantics = collections.filter((c) => !Array.isArray(c.semantics)).length;
@@ -594,7 +650,7 @@ async function runSearch() {
     render();
   } catch (err) {
     if (err.name === 'AbortError') setStatus('Recherche annulée.', 'warning');
-    else setStatus(`Erreur : ${err.message}`, 'error');
+    else setStatus(`Erreur : ${err.message}`, 'error', err.url || null);
   } finally {
     state.abort = null;
     els.searchBtn.disabled = false;
