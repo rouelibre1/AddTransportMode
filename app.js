@@ -957,8 +957,9 @@ function filteredSortedRows() {
     });
 }
 
+/** Séquences ouvertes parmi celles affichées avec les filtres en cours. */
 function openedRows() {
-  return state.rows.filter((r) => state.openedIds.has(r.id));
+  return filteredSortedRows().filter((r) => state.openedIds.has(r.id));
 }
 
 function updateRecheckOpenedButton() {
