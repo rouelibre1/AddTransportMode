@@ -1,0 +1,149 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #1d2733;
+  background: #f4f6f8;
+}
+
+header {
+  padding: 1rem 1.5rem;
+  background: #1f3a5f;
+  color: #fff;
+}
+header h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
+header p { margin: 0; opacity: .85; }
+header code { background: rgba(255,255,255,.15); padding: 0 .3em; border-radius: 3px; }
+
+main {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) 1fr;
+  grid-template-areas:
+    "form map"
+    "results results";
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+}
+#form-panel { grid-area: form; }
+#map-panel { grid-area: map; padding: 0; overflow: hidden; }
+#results-panel { grid-area: results; }
+
+@media (max-width: 800px) {
+  main { grid-template-columns: 1fr; grid-template-areas: "form" "map" "results"; }
+}
+
+.panel {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  padding: 1rem;
+}
+
+#map { height: 100%; min-height: 360px; }
+
+.field { margin-bottom: .9rem; }
+.field label { display: block; font-weight: 600; margin-bottom: .3rem; font-size: .9rem; }
+.field input[type="search"],
+.field input[type="url"],
+.field input[type="number"],
+.field select {
+  width: 100%;
+  padding: .45rem .55rem;
+  border: 1px solid #b8c2cc;
+  border-radius: 5px;
+  font: inherit;
+}
+#api-custom { margin-top: .4rem; }
+
+.field.checkbox { display: flex; gap: .5rem; align-items: flex-start; }
+.field.checkbox label { font-weight: normal; margin: 0; }
+
+.autocomplete { position: relative; }
+.suggestions {
+  position: absolute;
+  z-index: 1000;
+  left: 0; right: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #b8c2cc;
+  border-radius: 5px;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: 0 4px 10px rgba(0,0,0,.12);
+}
+.suggestions li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: .45rem .6rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.suggestions li button:hover,
+.suggestions li button:focus { background: #e8eef5; }
+.suggestions .hint { color: #66737f; font-size: .85em; }
+.suggestions .empty { padding: .45rem .6rem; color: #66737f; }
+
+.selected-territory { margin-top: .4rem; font-size: .9rem; color: #1f3a5f; }
+
+.buttons { display: flex; gap: .5rem; }
+button#search-btn, button#cancel-btn {
+  padding: .5rem 1rem;
+  border-radius: 5px;
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button#search-btn { background: #1f3a5f; color: #fff; }
+button#search-btn:disabled { opacity: .6; cursor: wait; }
+button#cancel-btn { background: #e3e7eb; color: #1d2733; }
+
+#status { margin-top: .8rem; font-size: .9rem; min-height: 1.2em; }
+#status.error { color: #b3261e; }
+#status.warning { color: #8a5a00; }
+
+.results-toolbar { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+.field.inline { margin-bottom: 0; }
+.field.inline input { width: 8rem; }
+.field.inline select { width: auto; }
+
+#summary { margin: .8rem 0; }
+
+.table-wrapper { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { padding: .45rem .55rem; border-bottom: 1px solid #e3e7eb; text-align: left; vertical-align: top; }
+th { background: #f0f3f6; position: sticky; top: 0; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+td .seq-id { display: block; color: #66737f; font-size: .8em; font-family: monospace; }
+td .tags { color: #44515c; font-family: monospace; font-size: .85em; }
+td .unverified { color: #8a5a00; font-size: .8em; display: block; }
+tr.highlight td { background: #fff6d6; }
+
+.sort-header {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.row-actions { white-space: nowrap; }
+.row-actions a, .row-actions button {
+  font: inherit;
+  font-size: .85em;
+  margin-right: .4rem;
+}
+.row-actions button {
+  border: 1px solid #b8c2cc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: .1rem .4rem;
+}
