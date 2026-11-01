@@ -524,6 +524,8 @@ function toRow(collection, apiBase) {
     instanceName: instance.name,
     instanceWeb: instance.web,
     verified: null, // true = vérifiée dans le contour, false = vérification impossible
+    recheck: null,  // null | 'loading' | 'present' | 'absent' | 'missing' | 'error'
+    recheckMessage: '',
   };
 }
 
@@ -765,6 +767,41 @@ function filteredSortedRows() {
     });
 }
 
+/** Relit la séquence sur son instance d'origine et indique si le tag transport est désormais présent. */
+async function recheckRow(row) {
+  row.recheck = 'loading';
+  render();
+  const url = `${row.instanceWeb}/api/collections/${encodeURIComponent(row.id)}`;
+  try {
+    const collection = await fetchJson(url, { cache: 'no-store' });
+    if (collection['geovisio:status'] === 'deleted') {
+      row.recheck = 'missing';
+      row.recheckMessage = 'Séquence supprimée ou masquée';
+    } else {
+      const semantics = Array.isArray(collection.semantics) ? collection.semantics : [];
+      row.tags = semantics.map((t) => `${t.key}=${t.value}`);
+      const transport = semantics.find((t) => t && String(t.key || '').trim().toLowerCase() === 'transport'
+        && String(t.value ?? '').trim() !== '');
+      if (transport) {
+        row.recheck = 'present';
+        row.recheckMessage = `✔ transport=${transport.value}`;
+      } else {
+        row.recheck = 'absent';
+        row.recheckMessage = 'Toujours sans transport';
+      }
+    }
+  } catch (err) {
+    if (err.status === 404) {
+      row.recheck = 'missing';
+      row.recheckMessage = 'Séquence introuvable';
+    } else {
+      row.recheck = 'error';
+      row.recheckMessage = `Échec : ${err.message}`;
+    }
+  }
+  render();
+}
+
 function highlightRow(id, on) {
   const tr = els.tbody.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
   if (tr) tr.classList.toggle('highlight', on);
@@ -802,6 +839,7 @@ function render() {
   for (const row of rows) {
     const tr = document.createElement('tr');
     tr.dataset.id = row.id;
+    if (row.recheck === 'present') tr.classList.add('rechecked-ok');
 
     const tdCount = document.createElement('td');
     tdCount.className = 'num';
@@ -853,6 +891,20 @@ function render() {
       zoom.textContent = 'Carte';
       zoom.addEventListener('click', () => zoomTo(row));
       tdActions.append(zoom);
+    }
+    const recheck = document.createElement('button');
+    recheck.type = 'button';
+    recheck.className = 'recheck-btn';
+    recheck.textContent = row.recheck === 'loading' ? 'Vérification…' : 'Revérifier';
+    recheck.disabled = row.recheck === 'loading';
+    recheck.title = 'Revérifier la présence du tag transport sur l’instance d’origine';
+    recheck.addEventListener('click', () => recheckRow(row));
+    tdActions.append(recheck);
+    if (row.recheck && row.recheck !== 'loading') {
+      const result = document.createElement('span');
+      result.className = `recheck-result ${row.recheck}`;
+      result.textContent = row.recheckMessage;
+      tdActions.append(result);
     }
 
     tr.append(tdCount, tdTitle, tdDate, tdProvider, tdTags, tdInstance, tdActions);
