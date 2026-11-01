@@ -51,6 +51,7 @@ const els = {
   dateRanges: $('date-ranges'),
   addDateRange: $('add-date-range'),
   recheckOpened: $('recheck-opened'),
+  toggleTransport: $('toggle-transport'),
   instanceFilter: $('instance-filter'),
   instanceFilterSummary: $('instance-filter-summary'),
   instanceOptions: $('instance-options'),
@@ -90,6 +91,10 @@ const state = {
   excludedYears: new Set(),     // années décochées dans le filtre
   openedIds: loadOpenedIds(),   // séquences dont le lien a été ouvert
   recheckingOpened: false,
+  showTransport: false,         // afficher les séquences qui ont déjà transport=
+  transportToCheck: [],         // séquences avec transport= pas encore vérifiées précisément
+  preciseContext: null,         // { geometry, geometryString } pour la vérification précise
+  checkingTransport: false,
 };
 
 /* ------------------------------------------------------------------ */
@@ -550,6 +555,7 @@ function toRow(collection, apiBase) {
     instanceName: instance.name,
     instanceWeb: instance.web,
     verified: null, // true = vérifiée dans le contour, false = vérification impossible
+    hasTransport: hasTransportTag(collection),
     recheck: null,  // null | 'loading' | 'present' | 'absent' | 'missing' | 'error'
     recheckMessage: '',
   };
@@ -577,6 +583,71 @@ async function sequenceIntersects(row, geometry, geometryString, signal) {
     const data = await postSearch(url, { intersects: geometry, collections: [row.id], limit: 1 }, signal);
     return (data.features || []).length > 0;
   }
+}
+
+/**
+ * Vérification précise d'un lot de séquences : garde celles qui ont au moins une photo
+ * dans le contour (et celles dont la vérification a échoué, marquées verified=false).
+ */
+async function preciseFilter(rows, signal, onProgress) {
+  const { geometry, geometryString } = state.preciseContext;
+  const kept = [];
+  let failures = 0;
+  let done = 0;
+  await runPool(rows, CHECK_CONCURRENCY, async (row) => {
+    try {
+      if (await sequenceIntersects(row, geometry, geometryString, signal)) {
+        row.verified = true;
+        kept.push(row);
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      failures++;
+      row.verified = false;
+      kept.push(row);
+    }
+    done++;
+    onProgress(done, rows.length);
+  });
+  return { kept, failures };
+}
+
+/** Vérifie précisément (une seule fois) les séquences avec transport= avant de les afficher. */
+async function checkTransportRows() {
+  const rows = state.transportToCheck;
+  if (!rows.length || !state.preciseContext || state.checkingTransport) return;
+  state.checkingTransport = true;
+  els.toggleTransport.disabled = true;
+  try {
+    const { kept, failures } = await preciseFilter(rows, undefined, (done, total) => {
+      els.toggleTransport.textContent = `Vérification précise… ${nf.format(done)} / ${nf.format(total)}`;
+    });
+    state.transportToCheck = [];
+    state.rows = state.rows.concat(kept);
+    if (failures) {
+      setStatus(`${nf.format(failures)} séquence(s) avec transport= n’ont pas pu être vérifiées précisément (conservées dans la liste).`, 'warning');
+    }
+  } catch (err) {
+    setStatus(`Erreur : ${err.message}`, 'error', err.url || null);
+  } finally {
+    state.checkingTransport = false;
+    els.toggleTransport.disabled = false;
+  }
+}
+
+async function toggleTransport() {
+  state.showTransport = !state.showTransport;
+  if (state.showTransport && state.transportToCheck.length) {
+    render();
+    await checkTransportRows();
+  }
+  render();
+}
+
+function updateToggleTransportButton() {
+  if (state.checkingTransport) return;
+  const n = state.rows.filter((r) => r.hasTransport).length + state.transportToCheck.length;
+  els.toggleTransport.textContent = `${state.showTransport ? 'Masquer' : 'Afficher'} les séquences avec transport= (${nf.format(n)})`;
 }
 
 async function runPool(items, concurrency, worker) {
@@ -636,45 +707,40 @@ async function runSearch() {
       const box = collectionBbox(c);
       return !box || bboxIntersectsGeometry(box, territory.geometry);
     });
-    const withTransport = inTerritory.filter(hasTransportTag).length;
-    let rows = inTerritory.filter((c) => !hasTransportTag(c)).map((c) => toRow(c, apiBase));
+    const allRows = inTerritory.map((c) => toRow(c, apiBase));
+    let rows = allRows.filter((r) => !r.hasTransport);
+    let transportRows = allRows.filter((r) => r.hasTransport);
+    state.transportToCheck = [];
+    state.preciseContext = null;
 
     let failures = 0;
-    if (els.preciseCheck.checked && territory.type !== 'map' && rows.length) {
+    if (els.preciseCheck.checked && territory.type !== 'map') {
       const simplified = simplifyGeometry(territory.geometry, SIMPLIFY_TOLERANCE);
-      const simplifiedString = JSON.stringify(simplified);
-      const kept = [];
-      let done = 0;
-      await runPool(rows, CHECK_CONCURRENCY, async (row) => {
-        try {
-          if (await sequenceIntersects(row, simplified, simplifiedString, controller.signal)) {
-            row.verified = true;
-            kept.push(row);
-          }
-        } catch (err) {
-          if (err.name === 'AbortError') throw err;
-          failures++;
-          row.verified = false;
-          kept.push(row);
-        }
-        done++;
-        setStatus(`Vérification précise… ${nf.format(done)} / ${nf.format(rows.length)}`);
-      });
-      rows = kept;
+      state.preciseContext = { geometry: simplified, geometryString: JSON.stringify(simplified) };
+      if (rows.length) {
+        const result = await preciseFilter(rows, controller.signal, (done, total) => {
+          setStatus(`Vérification précise… ${nf.format(done)} / ${nf.format(total)}`);
+        });
+        rows = result.kept;
+        failures = result.failures;
+      }
+      // les séquences avec transport= ne seront vérifiées qu'à leur premier affichage
+      state.transportToCheck = transportRows;
+      transportRows = [];
     }
 
-    state.rows = rows;
+    state.rows = rows.concat(transportRows);
     state.stats = {
       territory,
       fetched: collections.length,
       inTerritory: inTerritory.length,
-      withTransport,
       failures,
       withoutSemantics,
       precise: els.preciseCheck.checked && territory.type !== 'map',
     };
 
     const messages = [`Recherche terminée : ${nf.format(rows.length)} séquence(s) sans transport.`];
+    if (state.showTransport && state.transportToCheck.length) await checkTransportRows();
     let kind = '';
     if (failures) {
       messages.push(`${nf.format(failures)} séquence(s) n’ont pas pu être vérifiées précisément (conservées dans la liste).`);
@@ -686,7 +752,6 @@ async function runSearch() {
     }
     setStatus(messages.join(' '), kind);
     els.resultsPanel.hidden = false;
-    fillResultFilters();
     render();
   } catch (err) {
     if (err.name === 'AbortError') setStatus('Recherche annulée.', 'warning');
@@ -767,11 +832,12 @@ function rowYear(row) {
 
 /** Remplit les menus Instances et Années à partir des résultats. */
 function fillResultFilters() {
-  const instances = countBy(state.rows, (r) => r.instanceName);
+  const base = state.rows.filter((r) => state.showTransport || !r.hasTransport);
+  const instances = countBy(base, (r) => r.instanceName);
   fillMultiSelect(els.instanceOptions, [...instances.keys()].sort((a, b) => a.localeCompare(b, 'fr'))
     .map((name) => ({ value: name, label: name, count: instances.get(name) })), state.excludedInstances);
 
-  const years = countBy(state.rows, rowYear);
+  const years = countBy(base, rowYear);
   const yearValues = [...years.keys()].filter((y) => y !== NO_DATE).sort();
   if (years.has(NO_DATE)) yearValues.push(NO_DATE);
   fillMultiSelect(els.yearOptions, yearValues
@@ -835,6 +901,7 @@ function filteredSortedRows() {
   const instanceDir = state.instanceSort === 'asc' ? 1 : state.instanceSort === 'desc' ? -1 : 0;
   return state.rows
     .filter((r) => {
+      if (!state.showTransport && r.hasTransport) return false;
       if (state.excludedInstances.has(r.instanceName)) return false;
       if (state.excludedYears.has(rowYear(r))) return false;
       if (ranges.length) {
@@ -905,7 +972,8 @@ async function recheckOpenedRows() {
   state.recheckingOpened = false;
   const present = rows.filter((r) => r.recheck === 'present').length;
   updateRecheckOpenedButton();
-  setStatus(`Revérification terminée : ${nf.format(present)} séquence(s) sur ${nf.format(rows.length)} ont maintenant un tag transport=.`);
+  setStatus(`Revérification terminée : ${nf.format(present)} séquence(s) sur ${nf.format(rows.length)} ont maintenant un tag transport=.`
+    + (present && !state.showTransport ? ' Elles sont masquées avec les autres séquences qui ont ce tag.' : ''));
 }
 
 /** Relit la séquence sur son instance d'origine et indique si le tag transport est désormais présent. */
@@ -923,12 +991,16 @@ async function recheckRow(row) {
       row.tags = semantics.map((t) => `${t.key}=${t.value}`);
       const transport = semantics.find((t) => t && String(t.key || '').trim().toLowerCase() === 'transport'
         && String(t.value ?? '').trim() !== '');
+      row.hasTransport = Boolean(transport);
       if (transport) {
         row.recheck = 'present';
         row.recheckMessage = `✔ transport=${transport.value}`;
       } else {
         row.recheck = 'absent';
         row.recheckMessage = 'Toujours sans transport';
+      }
+      if (transport && !state.showTransport && !state.recheckingOpened) {
+        setStatus(`« ${row.title} » a maintenant transport=${transport.value} : elle est masquée avec les autres séquences qui ont ce tag.`);
       }
     }
   } catch (err) {
@@ -958,6 +1030,8 @@ function zoomTo(row) {
 }
 
 function render() {
+  fillResultFilters();
+  updateToggleTransportButton();
   const rows = filteredSortedRows();
   els.sortIndicator.textContent = els.sortOrder.value === 'asc' ? '▲' : '▼';
   els.instanceSortIndicator.textContent = state.instanceSort === 'desc' ? '▼' : '▲';
@@ -970,10 +1044,15 @@ function render() {
   const totalImages = rows.reduce((sum, r) => sum + (r.count || 0), 0);
   if (s) {
     const where = s.territory.type === 'map' ? 'l’emprise de la carte' : s.territory.label;
+    const withTransport = state.rows.filter((r) => r.hasTransport).length;
+    const withoutTransport = state.rows.length - withTransport;
+    const transportPart = state.transportToCheck.length
+      ? `${nf.format(state.transportToCheck.length)} séquence(s) de l’emprise ont déjà un tag transport= (pas encore vérifiées précisément).`
+      : `${nf.format(withTransport)} séquence(s) de la zone ont déjà un tag transport=${state.showTransport ? '' : ' (masquées)'}.`;
     els.summary.textContent =
-      `${nf.format(rows.length)} séquence(s) affichée(s) (${nf.format(totalImages)} images) sur `
-      + `${nf.format(state.rows.length)} séquence(s) sans transport= dans ${where}. `
-      + `${nf.format(s.withTransport)} séquence(s) de la zone ont déjà un tag transport=.`
+      `${nf.format(rows.length)} séquence(s) affichée(s) (${nf.format(totalImages)} images). `
+      + `${nf.format(withoutTransport)} séquence(s) sans transport= dans ${where}. `
+      + transportPart
       + (s.precise ? '' : ' Sélection basée sur l’emprise des séquences (sans vérification précise).');
   }
 
@@ -983,6 +1062,7 @@ function render() {
     const tr = document.createElement('tr');
     tr.dataset.id = row.id;
     if (row.recheck === 'present') tr.classList.add('rechecked-ok');
+    else if (row.hasTransport) tr.classList.add('has-transport');
 
     const tdCount = document.createElement('td');
     tdCount.className = 'num';
@@ -1125,6 +1205,7 @@ els.yearNone.addEventListener('click', () => setAllOptions(els.yearOptions, stat
 els.addDateRange.addEventListener('click', () => addDateRangeRow());
 addDateRangeRow();
 els.recheckOpened.addEventListener('click', recheckOpenedRows);
+els.toggleTransport.addEventListener('click', toggleTransport);
 els.instanceAll.addEventListener('click', () => setAllOptions(els.instanceOptions, state.excludedInstances, true));
 els.instanceNone.addEventListener('click', () => setAllOptions(els.instanceOptions, state.excludedInstances, false));
 document.addEventListener('click', (e) => {

@@ -124,7 +124,7 @@ td .seq-id { display: block; color: #66737f; font-size: .8em; font-family: monos
 td .tags { color: #44515c; font-family: monospace; font-size: .85em; }
 td .unverified { color: #8a5a00; font-size: .8em; display: block; }
 tr.highlight td { background: #fff6d6; }
-tr.rechecked-ok td { background: #e6f4ea; }
+tr.rechecked-ok td, tr.has-transport td { background: #e6f4ea; }
 .recheck-result { display: block; font-size: .8em; margin-top: .25rem; white-space: normal; }
 .recheck-result.present { color: #1e7b34; font-weight: 600; }
 .recheck-result.absent { color: #44515c; }
@@ -229,5 +229,5 @@ tr.rechecked-ok td { background: #e6f4ea; }
   padding: .2rem .6rem;
 }
 .small-btn:disabled { opacity: .5; cursor: default; }
-.results-actions { margin-top: .9rem; }
+.results-actions { margin-top: .9rem; display: flex; flex-wrap: wrap; gap: .5rem; }
 .opened-mark { display: block; font-size: .8em; color: #66737f; margin-top: .25rem; }
