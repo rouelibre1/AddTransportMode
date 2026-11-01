@@ -199,7 +199,7 @@ tr.rechecked-ok td { background: #e6f4ea; }
   cursor: pointer;
   padding: .1rem .4rem;
 }
-#instance-options label {
+.multi-select-options label {
   display: flex;
   gap: .4rem;
   align-items: center;
@@ -207,5 +207,27 @@ tr.rechecked-ok td { background: #e6f4ea; }
   white-space: nowrap;
   padding: .15rem 0;
 }
-#instance-options input { width: auto; margin: 0; }
+.multi-select-options input { width: auto; margin: 0; }
 .sort-header .inactive { opacity: .3; }
+
+.date-ranges-block { margin-top: .9rem; }
+.date-ranges-block .hint { font-weight: normal; color: #66737f; }
+.date-range { display: flex; gap: .5rem; align-items: center; margin-bottom: .4rem; flex-wrap: wrap; }
+.date-range input[type="date"] {
+  padding: .35rem .5rem;
+  border: 1px solid #b8c2cc;
+  border-radius: 5px;
+  font: inherit;
+}
+.small-btn {
+  font: inherit;
+  font-size: .9em;
+  border: 1px solid #b8c2cc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: .2rem .6rem;
+}
+.small-btn:disabled { opacity: .5; cursor: default; }
+.results-actions { margin-top: .9rem; }
+.opened-mark { display: block; font-size: .8em; color: #66737f; margin-top: .25rem; }

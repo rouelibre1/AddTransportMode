@@ -43,8 +43,14 @@ const els = {
   maxImages: $('max-images'),
   sortOrder: $('sort-order'),
   sortHeader: $('sort-header'),
-  dateFrom: $('date-from'),
-  dateTo: $('date-to'),
+  yearFilter: $('year-filter'),
+  yearFilterSummary: $('year-filter-summary'),
+  yearOptions: $('year-options'),
+  yearAll: $('year-all'),
+  yearNone: $('year-none'),
+  dateRanges: $('date-ranges'),
+  addDateRange: $('add-date-range'),
+  recheckOpened: $('recheck-opened'),
   instanceFilter: $('instance-filter'),
   instanceFilterSummary: $('instance-filter-summary'),
   instanceOptions: $('instance-options'),
@@ -57,6 +63,23 @@ const els = {
   tbody: document.querySelector('#results-table tbody'),
 };
 
+const OPENED_STORAGE_KEY = 'addtransportmode:opened-sequences';
+
+function loadOpenedIds() {
+  try {
+    const list = JSON.parse(localStorage.getItem(OPENED_STORAGE_KEY) || '[]');
+    return new Set(Array.isArray(list) ? list : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function saveOpenedIds() {
+  try {
+    localStorage.setItem(OPENED_STORAGE_KEY, JSON.stringify([...state.openedIds]));
+  } catch (_) { /* stockage indisponible : on garde seulement en mémoire */ }
+}
+
 const state = {
   territory: null,      // { type, code, nom, label, geometry, bbox }
   rows: [],             // séquences sans transport retenues
@@ -64,6 +87,9 @@ const state = {
   abort: null,
   instanceSort: '',     // '' (pas de tri), 'asc' ou 'desc'
   excludedInstances: new Set(), // instances décochées dans le filtre
+  excludedYears: new Set(),     // années décochées dans le filtre
+  openedIds: loadOpenedIds(),   // séquences dont le lien a été ouvert
+  recheckingOpened: false,
 };
 
 /* ------------------------------------------------------------------ */
@@ -660,7 +686,7 @@ async function runSearch() {
     }
     setStatus(messages.join(' '), kind);
     els.resultsPanel.hidden = false;
-    fillInstanceFilter();
+    fillResultFilters();
     render();
   } catch (err) {
     if (err.name === 'AbortError') setStatus('Recherche annulée.', 'warning');
@@ -683,45 +709,113 @@ function readIntInput(input) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Remplit les cases à cocher des instances présentes dans les résultats (en gardant les choix courants). */
-function fillInstanceFilter() {
-  const counts = new Map();
-  for (const r of state.rows) counts.set(r.instanceName, (counts.get(r.instanceName) || 0) + 1);
-  const names = [...counts.keys()].sort((a, b) => a.localeCompare(b, 'fr'));
-  for (const name of [...state.excludedInstances]) {
-    if (!counts.has(name)) state.excludedInstances.delete(name);
-  }
-  els.instanceOptions.innerHTML = '';
-  for (const name of names) {
+const NO_DATE = 'sans-date';
+
+/**
+ * Remplit un menu à cases à cocher. entries : [{ value, label, count }].
+ * Les valeurs décochées sont mémorisées dans `excluded` (conservées si toujours présentes).
+ */
+function fillMultiSelect(container, entries, excluded) {
+  const values = new Set(entries.map((e) => e.value));
+  for (const v of [...excluded]) if (!values.has(v)) excluded.delete(v);
+  container.innerHTML = '';
+  for (const entry of entries) {
     const label = document.createElement('label');
     const box = document.createElement('input');
     box.type = 'checkbox';
-    box.value = name;
-    box.checked = !state.excludedInstances.has(name);
+    box.value = entry.value;
+    box.checked = !excluded.has(entry.value);
     box.addEventListener('change', () => {
-      if (box.checked) state.excludedInstances.delete(name);
-      else state.excludedInstances.add(name);
+      if (box.checked) excluded.delete(entry.value);
+      else excluded.add(entry.value);
       render();
     });
-    label.append(box, `${name} (${nf.format(counts.get(name))})`);
-    els.instanceOptions.append(label);
+    label.append(box, `${entry.label} (${nf.format(entry.count)})`);
+    container.append(label);
   }
 }
 
-function setAllInstances(checked) {
-  for (const box of els.instanceOptions.querySelectorAll('input[type="checkbox"]')) {
+function setAllOptions(container, excluded, checked) {
+  for (const box of container.querySelectorAll('input[type="checkbox"]')) {
     box.checked = checked;
-    if (checked) state.excludedInstances.delete(box.value);
-    else state.excludedInstances.add(box.value);
+    if (checked) excluded.delete(box.value);
+    else excluded.add(box.value);
   }
   render();
 }
 
-function updateInstanceFilterSummary() {
-  const total = els.instanceOptions.querySelectorAll('input').length;
-  const selected = total - state.excludedInstances.size;
-  els.instanceFilterSummary.textContent = selected === total ? `Toutes (${nf.format(total)})`
+function multiSelectSummary(container, excluded) {
+  const total = container.querySelectorAll('input').length;
+  const selected = total - excluded.size;
+  return selected === total ? `Toutes (${nf.format(total)})`
     : selected === 0 ? 'Aucune' : `${nf.format(selected)} sur ${nf.format(total)}`;
+}
+
+function countBy(rows, keyFn) {
+  const counts = new Map();
+  for (const r of rows) {
+    const k = keyFn(r);
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  return counts;
+}
+
+function rowYear(row) {
+  const day = localIsoDate(row.date);
+  return day ? day.slice(0, 4) : NO_DATE;
+}
+
+/** Remplit les menus Instances et Années à partir des résultats. */
+function fillResultFilters() {
+  const instances = countBy(state.rows, (r) => r.instanceName);
+  fillMultiSelect(els.instanceOptions, [...instances.keys()].sort((a, b) => a.localeCompare(b, 'fr'))
+    .map((name) => ({ value: name, label: name, count: instances.get(name) })), state.excludedInstances);
+
+  const years = countBy(state.rows, rowYear);
+  const yearValues = [...years.keys()].filter((y) => y !== NO_DATE).sort();
+  if (years.has(NO_DATE)) yearValues.push(NO_DATE);
+  fillMultiSelect(els.yearOptions, yearValues
+    .map((y) => ({ value: y, label: y === NO_DATE ? 'Sans date' : y, count: years.get(y) })), state.excludedYears);
+}
+
+/* Plages de dates multiples */
+
+function addDateRangeRow(from = '', to = '') {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'date-range';
+  const fromLabel = document.createElement('label');
+  const fromInput = document.createElement('input');
+  fromInput.type = 'date';
+  fromInput.className = 'range-from';
+  fromInput.value = from;
+  fromLabel.append('du ', fromInput);
+  const toLabel = document.createElement('label');
+  const toInput = document.createElement('input');
+  toInput.type = 'date';
+  toInput.className = 'range-to';
+  toInput.value = to;
+  toLabel.append('au ', toInput);
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'small-btn';
+  remove.textContent = '✕';
+  remove.title = 'Supprimer cette plage';
+  remove.addEventListener('click', () => {
+    wrapper.remove();
+    if (!els.dateRanges.children.length) addDateRangeRow();
+    render();
+  });
+  fromInput.addEventListener('input', render);
+  toInput.addEventListener('input', render);
+  wrapper.append(fromLabel, toLabel, remove);
+  els.dateRanges.append(wrapper);
+}
+
+/** Plages renseignées (au moins une borne). */
+function activeDateRanges() {
+  return [...els.dateRanges.querySelectorAll('.date-range')]
+    .map((w) => ({ from: w.querySelector('.range-from').value || null, to: w.querySelector('.range-to').value || null }))
+    .filter((r) => r.from || r.to);
 }
 
 /** Date locale AAAA-MM-JJ (même jour que celui affiché dans le tableau). */
@@ -737,17 +831,16 @@ function filteredSortedRows() {
   const min = readIntInput(els.minImages);
   const max = readIntInput(els.maxImages);
   const dir = els.sortOrder.value === 'asc' ? 1 : -1;
-  const dateFrom = els.dateFrom.value || null;
-  const dateTo = els.dateTo.value || null;
+  const ranges = activeDateRanges();
   const instanceDir = state.instanceSort === 'asc' ? 1 : state.instanceSort === 'desc' ? -1 : 0;
   return state.rows
     .filter((r) => {
       if (state.excludedInstances.has(r.instanceName)) return false;
-      if (dateFrom || dateTo) {
+      if (state.excludedYears.has(rowYear(r))) return false;
+      if (ranges.length) {
         const day = localIsoDate(r.date);
         if (!day) return false;
-        if (dateFrom && day < dateFrom) return false;
-        if (dateTo && day > dateTo) return false;
+        if (!ranges.some((rg) => (!rg.from || day >= rg.from) && (!rg.to || day <= rg.to))) return false;
       }
       if (min === null && max === null) return true;
       if (r.count === null) return false;
@@ -765,6 +858,54 @@ function filteredSortedRows() {
       if (b.count === null) return -1;
       return (a.count - b.count) * dir || String(a.date || '').localeCompare(String(b.date || ''));
     });
+}
+
+function openedRows() {
+  return state.rows.filter((r) => state.openedIds.has(r.id));
+}
+
+function updateRecheckOpenedButton() {
+  if (state.recheckingOpened) return;
+  const n = openedRows().length;
+  els.recheckOpened.textContent = `Revérifier les séquences ouvertes (${nf.format(n)})`;
+  els.recheckOpened.disabled = n === 0;
+}
+
+function markOpened(row, tr) {
+  if (state.openedIds.has(row.id)) return;
+  state.openedIds.add(row.id);
+  saveOpenedIds();
+  // pas de render() ici : on ne reconstruit pas le lien pendant son clic
+  addOpenedMark(tr);
+  updateRecheckOpenedButton();
+}
+
+function addOpenedMark(tr) {
+  const cell = tr.querySelector('.row-actions');
+  if (!cell || cell.querySelector('.opened-mark')) return;
+  const mark = document.createElement('span');
+  mark.className = 'opened-mark';
+  mark.textContent = 'Lien ouvert';
+  cell.prepend(mark);
+}
+
+/** Revérifie toutes les séquences des résultats dont le lien a été ouvert. */
+async function recheckOpenedRows() {
+  const rows = openedRows();
+  if (!rows.length || state.recheckingOpened) return;
+  state.recheckingOpened = true;
+  els.recheckOpened.disabled = true;
+  let done = 0;
+  els.recheckOpened.textContent = `Vérification… 0 / ${nf.format(rows.length)}`;
+  await runPool(rows, CHECK_CONCURRENCY, async (row) => {
+    await recheckRow(row);
+    done++;
+    els.recheckOpened.textContent = `Vérification… ${nf.format(done)} / ${nf.format(rows.length)}`;
+  });
+  state.recheckingOpened = false;
+  const present = rows.filter((r) => r.recheck === 'present').length;
+  updateRecheckOpenedButton();
+  setStatus(`Revérification terminée : ${nf.format(present)} séquence(s) sur ${nf.format(rows.length)} ont maintenant un tag transport=.`);
 }
 
 /** Relit la séquence sur son instance d'origine et indique si le tag transport est désormais présent. */
@@ -821,7 +962,9 @@ function render() {
   els.sortIndicator.textContent = els.sortOrder.value === 'asc' ? '▲' : '▼';
   els.instanceSortIndicator.textContent = state.instanceSort === 'desc' ? '▼' : '▲';
   els.instanceSortIndicator.classList.toggle('inactive', !state.instanceSort);
-  updateInstanceFilterSummary();
+  els.instanceFilterSummary.textContent = multiSelectSummary(els.instanceOptions, state.excludedInstances);
+  els.yearFilterSummary.textContent = multiSelectSummary(els.yearOptions, state.excludedYears);
+  updateRecheckOpenedButton();
 
   const s = state.stats;
   const totalImages = rows.reduce((sum, r) => sum + (r.count || 0), 0);
@@ -908,6 +1051,13 @@ function render() {
     }
 
     tr.append(tdCount, tdTitle, tdDate, tdProvider, tdTags, tdInstance, tdActions);
+    for (const link of [titleLink, edit]) {
+      // clic gauche, clic molette ou menu contextuel « ouvrir dans un nouvel onglet »
+      link.addEventListener('click', () => markOpened(row, tr));
+      link.addEventListener('auxclick', () => markOpened(row, tr));
+      link.addEventListener('contextmenu', () => markOpened(row, tr));
+    }
+    if (state.openedIds.has(row.id)) addOpenedMark(tr);
     tr.addEventListener('mouseenter', () => highlightRow(row.id, true));
     tr.addEventListener('mouseleave', () => highlightRow(row.id, false));
     fragment.append(tr);
@@ -970,12 +1120,17 @@ els.cancelBtn.addEventListener('click', () => {
 els.minImages.addEventListener('input', render);
 els.maxImages.addEventListener('input', render);
 els.sortOrder.addEventListener('change', render);
-els.dateFrom.addEventListener('input', render);
-els.dateTo.addEventListener('input', render);
-els.instanceAll.addEventListener('click', () => setAllInstances(true));
-els.instanceNone.addEventListener('click', () => setAllInstances(false));
+els.yearAll.addEventListener('click', () => setAllOptions(els.yearOptions, state.excludedYears, true));
+els.yearNone.addEventListener('click', () => setAllOptions(els.yearOptions, state.excludedYears, false));
+els.addDateRange.addEventListener('click', () => addDateRangeRow());
+addDateRangeRow();
+els.recheckOpened.addEventListener('click', recheckOpenedRows);
+els.instanceAll.addEventListener('click', () => setAllOptions(els.instanceOptions, state.excludedInstances, true));
+els.instanceNone.addEventListener('click', () => setAllOptions(els.instanceOptions, state.excludedInstances, false));
 document.addEventListener('click', (e) => {
-  if (els.instanceFilter.open && !els.instanceFilter.contains(e.target)) els.instanceFilter.open = false;
+  for (const menu of [els.instanceFilter, els.yearFilter]) {
+    if (menu.open && !menu.contains(e.target)) menu.open = false;
+  }
 });
 els.instanceSortHeader.addEventListener('click', () => {
   // sans tri -> A→Z -> Z→A -> sans tri

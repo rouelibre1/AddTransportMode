@@ -81,12 +81,17 @@
           </select>
         </div>
         <div class="field inline">
-          <label for="date-from">Prise de vue du</label>
-          <input type="date" id="date-from">
-        </div>
-        <div class="field inline">
-          <label for="date-to">au</label>
-          <input type="date" id="date-to">
+          <span class="field-label">Années de prise de vue</span>
+          <details id="year-filter" class="multi-select">
+            <summary id="year-filter-summary">Toutes</summary>
+            <div class="multi-select-menu">
+              <div class="multi-select-actions">
+                <button type="button" id="year-all">Tout cocher</button>
+                <button type="button" id="year-none">Tout décocher</button>
+              </div>
+              <div id="year-options" class="multi-select-options"></div>
+            </div>
+          </details>
         </div>
         <div class="field inline">
           <span class="field-label">Instances</span>
@@ -97,10 +102,18 @@
                 <button type="button" id="instance-all">Tout cocher</button>
                 <button type="button" id="instance-none">Tout décocher</button>
               </div>
-              <div id="instance-options"></div>
+              <div id="instance-options" class="multi-select-options"></div>
             </div>
           </details>
         </div>
+      </div>
+      <div class="date-ranges-block">
+        <span class="field-label">Plages de dates de prise de vue <span class="hint">(une séquence est gardée si elle est dans l’une des plages)</span></span>
+        <div id="date-ranges"></div>
+        <button type="button" id="add-date-range" class="small-btn">+ Ajouter une plage</button>
+      </div>
+      <div class="results-actions">
+        <button type="button" id="recheck-opened" class="small-btn" disabled>Revérifier les séquences ouvertes (0)</button>
       </div>
       <p id="summary"></p>
       <div class="table-wrapper">
