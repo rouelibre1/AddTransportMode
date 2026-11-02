@@ -28,7 +28,7 @@ où le mode de transport peut être ajouté (connexion requise).
    `GET /api/collections?bbox=…` (toutes les pages).
 3. Sont conservées les séquences dont les `semantics` ne contiennent pas de tag `transport`
    avec une valeur non vide, et dont l'emprise touche le contour du territoire.
-4. Option *vérification précise* (activée par défaut) : pour chaque séquence restante,
+4. Option *vérification précise* (désactivée par défaut) : pour chaque séquence restante,
    `POST /api/search` (paramètre `intersects`) est envoyé à son instance d'origine pour vérifier
    qu'au moins une photo est dans le contour. Les séquences dont la vérification échoue sont
    conservées et signalées « non vérifiée précisément ».
